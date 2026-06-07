@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAM-04 // RESTROOM</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oswald:wght@300;400;700&display=swap');
+
+  :root {
+    --green: #39ff14;
+    --dim-green: #1a7a0a;
+    --red: #ff2200;
+    --amber: #ffaa00;
+    --bg: #080808;
+    --panel: #0e0e0e;
+    --border: #1e1e1e;
+    --scan: rgba(0,255,0,0.03);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      var(--scan) 2px,
+      var(--scan) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* CRT vignette */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.8) 100%);
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--dim-green);
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .rec-dot {
+    width: 10px; height: 10px;
+    background: var(--red);
+    border-radius: 50%;
+    animation: blink 1.2s step-end infinite;
+    box-shadow: 0 0 6px var(--red);
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.1} }
+
+  .topbar .label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--green);
+    opacity: 0.8;
+  }
+
+  .topbar .cam-id {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 4px;
+    color: var(--green);
+    text-shadow: 0 0 10px var(--green);
+  }
+
+  .clock {
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: var(--amber);
+    text-shadow: 0 0 8px var(--amber);
+  }
+
+  /* ── NAV TABS ── */
+  .nav {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .nav-btn {
+    flex: 1;
+    padding: 12px;
+    background: none;
+    border: none;
+    color: var(--dim-green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+
+  .nav-btn:last-child { border-right: none; }
+
+  .nav-btn.active {
+    color: var(--green);
+    background: rgba(57,255,20,0.06);
+    text-shadow: 0 0 8px var(--green);
+    border-bottom: 2px solid var(--green);
+  }
+
+  .nav-btn:hover:not(.active) {
+    color: var(--green);
+    background: rgba(57,255,20,0.03);
+  }
+
+  /* ── PAGES ── */
+  .page { display: none; padding: 20px 16px; }
+  .page.active { display: block; }
+
+  /* ── UPLOAD PAGE ── */
+  .section-header {
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--dim-green);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .preview-box {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #000;
+    border: 1px solid var(--dim-green);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .preview-box canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  .preview-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--dim-green);
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  .preview-placeholder .icon {
+    font-size: 36px;
+    opacity: 0.4;
+  }
+
+  /* CCTV overlay elements */
+  .cctv-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: none;
+  }
+
+  .cctv-overlay.visible { display: block; }
+
+  .cctv-corner {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-color: var(--green);
+    border-style: solid;
+    opacity: 0.7;
+  }
+  .cctv-corner.tl { top: 8px; left: 8px; border-width: 2px 0 0 2px; }
+  .cctv-corner.tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
+  .cctv-corner.bl { bottom: 8px; left: 8px; border-width: 0 0 2px 2px; }
+  .cctv-corner.br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+
+  .cctv-timestamp {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    font-size: 10px;
+    color: var(--green);
+    text-shadow: 0 0 4px var(--green);
+    letter-spacing: 1px;
+  }
+
+  .cctv-camid {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 10px;
+    color: var(--green);
+    letter-spacing: 1px;
+  }
+
+  .noise-overlay {
+    position: absolute;
+    inset: 0;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px;
+    mix-blend-mode: screen;
+  }
+
+  /* ── FILTER SELECTOR ── */
+  .filter-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--dim-green);
+    margin-bottom: 10px;
+  }
+
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .filter-btn {
+    padding: 10px 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--dim-green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+
+  .filter-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(57,255,20,0.08);
+    text-shadow: 0 0 6px var(--green);
+  }
+
+  /* ── BUTTONS ── */
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .btn {
+    padding: 14px;
+    background: none;
+    border: 1px solid var(--dim-green);
+    color: var(--dim-green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+
+  .btn:hover {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(57,255,20,0.06);
+  }
+
+  .btn.primary {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(57,255,20,0.06);
+    text-shadow: 0 0 6px var(--green);
+  }
+
+  .btn.primary:hover {
+    background: rgba(57,255,20,0.15);
+    box-shadow: 0 0 20px rgba(57,255,20,0.2);
+  }
+
+  .btn.danger {
+    border-color: var(--red);
+    color: var(--red);
+  }
+
+  .btn.full { grid-column: 1 / -1; }
+
+  /* Status messages */
+  .status-msg {
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 10px;
+    border: 1px solid;
+    margin-top: 12px;
+    text-align: center;
+    display: none;
+  }
+  .status-msg.ok { border-color: var(--green); color: var(--green); display: block; }
+  .status-msg.err { border-color: var(--red); color: var(--red); display: block; }
+
+  /* ── GALLERY PAGE ── */
+  .gallery-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .gallery-count {
+    font-size: 10px;
+    color: var(--amber);
+    letter-spacing: 2px;
+  }
+
+  .gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .gallery-item {
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .gallery-item img, .gallery-item canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .gallery-item .thumb-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .gallery-item .thumb-ts {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    font-size: 7px;
+    color: var(--green);
+    letter-spacing: 0.5px;
+    text-shadow: 0 0 3px var(--green);
+  }
+
+  .gallery-item .thumb-id {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 7px;
+    color: var(--green);
+  }
+
+  /* scan line on thumbs */
+  .gallery-item::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(0,255,0,0.02) 3px, rgba(0,255,0,0.02) 4px
+    );
+    pointer-events: none;
+  }
+
+  .empty-gallery {
+    grid-column: 1/-1;
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--dim-green);
+    font-size: 11px;
+    letter-spacing: 2px;
+    opacity: 0.5;
+  }
+
+  /* ── LIGHTBOX ── */
+  .lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.95);
+    z-index: 1000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .lightbox.visible { display: flex; }
+
+  .lightbox canvas {
+    max-width: 100%;
+    max-height: 70vh;
+    border: 1px solid var(--dim-green);
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    padding: 8px 16px;
+    cursor: pointer;
+    letter-spacing: 2px;
+  }
+
+  .lightbox-meta {
+    margin-top: 12px;
+    font-size: 10px;
+    color: var(--dim-green);
+    letter-spacing: 2px;
+    text-align: center;
+  }
+
+  /* ── INFO PAGE ── */
+  .info-block {
+    border: 1px solid var(--border);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .info-block h3 {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 300;
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: var(--amber);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  .info-block p {
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--dim-green);
+    letter-spacing: 1px;
+  }
+
+  .info-block p span {
+    color: var(--green);
+  }
+
+  /* hidden file input */
+  #fileInput { display: none; }
+
+  .face-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 14px;
+    font-size: 10px;
+    letter-spacing: 2px;
+    min-height: 40px;
+  }
+  .face-status .face-icon { font-size: 16px; }
+  .face-status.idle { border-color: var(--border); color: var(--dim-green); }
+  .face-status.scanning { border-color: var(--amber); color: var(--amber); animation: pulse 0.8s ease-in-out infinite; }
+  .face-status.ok { border-color: var(--green); color: var(--green); text-shadow: 0 0 6px var(--green); }
+  .face-status.fail { border-color: var(--red); color: var(--red); }
+  .face-status.blocked { border-color: var(--red); color: var(--red); background: rgba(255,34,0,0.05); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .face-bar { height: 3px; background: var(--border); margin-bottom: 14px; overflow: hidden; }
+  .face-bar-fill { height: 100%; width: 0%; background: var(--amber); transition: width 0.4s ease; }
+  .face-bar-fill.ok { background: var(--green); }
+  .face-bar-fill.fail { background: var(--red); }
+
+  /* glitch effect on title */
+  @keyframes glitch {
+    0%,95%,100% { text-shadow: 0 0 10px var(--green); transform: none; }
+    96% { text-shadow: -2px 0 var(--red), 2px 0 cyan; transform: translateX(2px); }
+    98% { text-shadow: 2px 0 var(--red), -2px 0 cyan; transform: translateX(-1px); }
+  }
+
+  .cam-id { animation: glitch 6s infinite; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="rec-dot"></div>
+    <span class="label">LIVE</span>
+    <span class="cam-id">CAM-04</span>
+  </div>
+  <div class="clock" id="clock">--:--:--</div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn active" onclick="switchPage('upload')">[ 上傳 ]</button>
+  <button class="nav-btn" onclick="switchPage('gallery')">[ 相簿 ]</button>
+  <button class="nav-btn" onclick="switchPage('stats')">[ 統計 ]</button>
+  <button class="nav-btn" onclick="switchPage('admin')">[ ⚙ ]</button>
+</div>
+
+<!-- ── UPLOAD PAGE ── -->
+<div class="page active" id="page-upload">
+  <div class="section-header">// 捕捉畫面 · CAPTURE FRAME</div>
+
+  <div class="preview-box" id="previewBox">
+    <canvas id="previewCanvas" style="display:none"></canvas>
+    <div class="preview-placeholder" id="placeholder">
+      <div class="icon">📷</div>
+      <div>SELECT IMAGE TO PREVIEW</div>
+      <div style="opacity:0.4;font-size:9px;margin-top:4px">TAP TO LOAD SUBJECT</div>
+    </div>
+    <div class="cctv-overlay" id="cctvOverlay">
+      <div class="cctv-corner tl"></div>
+      <div class="cctv-corner tr"></div>
+      <div class="cctv-corner bl"></div>
+      <div class="cctv-corner br"></div>
+      <div class="cctv-timestamp" id="overlayTimestamp"></div>
+      <div class="cctv-camid">CAM-04 // WC</div>
+      <div class="noise-overlay"></div>
+    </div>
+  </div>
+
+  <div class="filter-label">// 濾鏡模式 · FILTER MODE</div>
+  <div class="filter-grid" style="grid-template-columns:repeat(4,1fr)">
+    <button class="filter-btn active" onclick="setFilter('ghost')" id="f-ghost">廁所幽靈</button>
+    <button class="filter-btn" onclick="setFilter('boom')" id="f-boom">爆炸頭</button>
+    <button class="filter-btn" onclick="setFilter('oldman')" id="f-oldman">老人照</button>
+    <button class="filter-btn" onclick="setFilter('receipt')" id="f-receipt">收據臉</button>
+    <button class="filter-btn" onclick="setFilter('chunk')" id="f-chunk">玩具相機</button>
+    <button class="filter-btn" onclick="setFilter('alien')" id="f-alien">外星人</button>
+    <button class="filter-btn" onclick="setFilter('databend')" id="f-databend">資料出軌</button>
+    <button class="filter-btn" onclick="setFilter('tear')" id="f-tear">訊號走光</button>
+    <button class="filter-btn" onclick="setFilter('corrupt')" id="f-corrupt">調色盤翻車</button>
+    <button class="filter-btn" onclick="setFilter('crt')" id="f-crt">電視抽風</button>
+    <button class="filter-btn" onclick="setFilter('rgb')" id="f-rgb">RGB吵架</button>
+    <button class="filter-btn" onclick="setFilter('blind')" id="f-blind">色盲測試</button>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" onclick="document.getElementById('fileInput').click()">選擇照片</button>
+    <button class="btn" onclick="openCamera()">開啟相機</button>
+  </div>
+
+  <div class="face-status idle" id="faceStatus">
+    <span class="face-icon">👤</span>
+    <span id="faceStatusText">// 等待載入圖像 · AWAITING IMAGE</span>
+  </div>
+  <div class="face-bar"><div class="face-bar-fill" id="faceBarFill"></div></div>
+
+  <div id="captionArea" style="display:none;margin-bottom:12px">
+    <div class="filter-label" style="margin-bottom:8px">// 留下一句話 · CAPTION <span style="opacity:0.4;font-size:9px">（選填，最多30字）</span></div>
+    <div style="position:relative">
+      <input type="text" id="captionInput" maxlength="30" placeholder="說點什麼，或留空..."
+        style="width:100%;background:#000;border:1px solid var(--dim-green);color:var(--green);
+        font-family:'Share Tech Mono',monospace;font-size:13px;padding:12px 44px 12px 12px;
+        letter-spacing:1px;outline:none;box-sizing:border-box;"
+        oninput="updateCaptionCount()">
+      <span id="captionCount" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+        font-size:9px;color:var(--dim-green);letter-spacing:1px">0/30</span>
+    </div>
+  </div>
+
+  <button class="btn primary full" onclick="submitPhoto()" id="submitBtn" disabled style="opacity:0.4">
+    ▶ 傳送至系統
+  </button>
+
+  <div class="status-msg" id="statusMsg"></div>
+  <input type="file" id="fileInput" accept="image/*" onchange="loadFile(event)">
+  <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="loadFile(event)" style="display:none">
+</div>
+
+<!-- ── GALLERY PAGE ── -->
+<div class="page" id="page-gallery">
+  <div class="gallery-header">
+    <div class="section-header" style="margin:0">// 監控紀錄 · LOG</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="rec-dot" style="width:7px;height:7px" title="即時更新中"></div>
+      <div class="gallery-count" id="galleryCount">0 SUBJECTS</div>
+    </div>
+  </div>
+  <div class="gallery-grid" id="galleryGrid">
+    <div class="empty-gallery">NO SUBJECTS CAPTURED<br><br>// AWAITING INPUT</div>
+  </div>
+</div>
+
+<!-- ── STATS PAGE ── -->
+<div class="page" id="page-stats">
+  <div class="section-header">// 系統統計 · SYSTEM STATS</div>
+
+  <div class="info-block" style="margin-bottom:10px">
+    <h3>// 總上傳人數</h3>
+    <div style="font-family:'Oswald',sans-serif;font-size:52px;font-weight:700;
+      color:var(--green);text-shadow:0 0 20px var(--green);letter-spacing:4px;
+      text-align:center;padding:10px 0" id="statTotal">--</div>
+    <p style="text-align:center;opacity:0.5">SUBJECTS LOGGED</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="info-block" style="margin:0;text-align:center">
+      <h3>// 今日</h3>
+      <div style="font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;
+        color:var(--amber);text-shadow:0 0 12px var(--amber);letter-spacing:2px;
+        padding:8px 0" id="statToday">--</div>
+      <p style="font-size:9px;opacity:0.5">TODAY</p>
+    </div>
+    <div class="info-block" style="margin:0;text-align:center">
+      <h3>// 本週</h3>
+      <div style="font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;
+        color:var(--amber);text-shadow:0 0 12px var(--amber);letter-spacing:2px;
+        padding:8px 0" id="statWeek">--</div>
+      <p style="font-size:9px;opacity:0.5">THIS WEEK</p>
+    </div>
+  </div>
+
+  <div class="info-block" style="margin-bottom:10px">
+    <h3>// 最活躍時段</h3>
+    <div id="statHourChart" style="padding:8px 0">
+      <div style="opacity:0.4;font-size:10px;letter-spacing:2px;text-align:center">載入中...</div>
+    </div>
+  </div>
+
+  <div class="info-block">
+    <h3>// 最常用濾鏡</h3>
+    <div id="statFilters" style="padding:4px 0">
+      <div style="opacity:0.4;font-size:10px;letter-spacing:2px;text-align:center">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── INFO PAGE ── -->
+<div class="page" id="page-info">
+  <div class="section-header">// 系統資訊 · SYSTEM INFO</div>
+
+  <div class="info-block">
+    <h3>// 關於這個裝置</h3>
+    <p>
+      你正在使用 <span>CAM-04</span> 監控終端機。<br><br>
+      這是一個公開共享的馬桶時刻紀錄系統。<br>
+      所有上傳的照片將顯示於相簿頁面，供所有訪客瀏覽。<br><br>
+      <span>// 上傳即表示同意公開展示</span>
+    </p>
+  </div>
+
+  <div class="info-block">
+    <h3>// 濾鏡說明</h3>
+    <p>
+      <span>腐壞</span> — 粉紫染底，陰影藍綠，亮部泛玫瑰霧<br>
+      <span>深海</span> — 深藍去飽和，冷白亮部，偶發螢光點<br>
+      <span>全息</span> — 黑白 + RGB 色差錯位 + 彩虹干涉條紋<br>
+      <span>核燼</span> — 橘紅焦黑，極亮部燒成橙白<br>
+      <span>磁帶</span> — 粉紫超飽和，水平行錯位，VHS 掃描線<br>
+      <span>銀鹽</span> — 棕黃底調，高光暈染過曝，底片顆粒感<br>
+      <span>紫外線</span> — 白色物體變螢光藍紫，暗部壓更暗<br>
+      <span>熔解</span> — 顏色邊界溶化，色相流向鄰近，保留輪廓<br>
+      <span>二色印</span> — Risograph 酸黃 + 靛藍疊印，重疊生第三色<br>
+      <span>發酵</span> — 暖黃去飽和，高光奶白，暗部棕綠氧化感
+    </p>
+  </div>
+
+  <div class="info-block">
+    <h3>// 系統狀態</h3>
+    <p>
+      狀態：<span>ONLINE</span><br>
+      儲存：<span>LOCAL (PROTOTYPE)</span><br>
+      版本：<span>0.1.0-PROTO</span>
+    </p>
+  </div>
+</div>
+
+<!-- ── ADMIN PAGE ── -->
+<div class="page" id="page-admin">
+  <div class="section-header">// 管理員終端機 · ADMIN TERMINAL</div>
+
+  <div id="adminLogin">
+    <div class="info-block" style="margin-bottom:14px">
+      <h3>// 身份驗證 · AUTH REQUIRED</h3>
+      <p>輸入管理員密碼以繼續</p>
+    </div>
+    <input type="password" id="adminPwInput" placeholder="ENTER PASSWORD"
+      style="width:100%;background:#000;border:1px solid var(--dim-green);color:var(--green);
+      font-family:'Share Tech Mono',monospace;font-size:13px;padding:14px;letter-spacing:3px;
+      outline:none;margin-bottom:10px;"
+      onkeydown="if(event.key==='Enter')checkAdminPw()">
+    <button class="btn primary full" onclick="checkAdminPw()">▶ 驗證</button>
+    <div class="status-msg" id="adminLoginMsg"></div>
+  </div>
+
+  <div id="adminPanel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="gallery-count" id="adminCount">0 SUBJECTS</div>
+      <button class="btn danger" onclick="adminLockout()" style="padding:8px 14px;font-size:10px">登出</button>
+    </div>
+
+    <div class="btn-row" style="margin-bottom:16px">
+      <button class="btn danger" onclick="clearAllPhotos()">⚠ 清空全部</button>
+      <button class="btn" onclick="resetDeviceLock()" style="font-size:10px">重置裝置鎖定</button>
+    </div>
+
+    <div class="gallery-grid" id="adminGrid"></div>
+    <div class="status-msg" id="adminMsg"></div>
+  </div>
+</div>
+
+<!-- ── LIGHTBOX ── -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" onclick="closeLightbox()">✕ CLOSE</button>
+  <canvas id="lightboxCanvas"></canvas>
+  <div class="lightbox-meta" id="lightboxMeta"></div>
+  <div id="lightboxCaption" style="display:none;margin-top:12px;padding:10px 14px;
+    border:1px solid var(--dim-green);font-size:13px;color:var(--green);
+    letter-spacing:1px;line-height:1.6;max-width:100%;text-align:center;
+    text-shadow:0 0 6px var(--green)"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════
+// SUPABASE & STATE（最先宣告）
+// ══════════════════════════════════════
+const SUPABASE_URL = 'https://ewbmqbckuzszyclsaimf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_vWqZMH1Ov0dR0zIkbMO__w_fTh8FRMp';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const UPLOADED_KEY    = 'cctv_upload_log';
+const ADMIN_SESSION_KEY = 'cctv_admin_session';
+const EDGE_FN_URL     = `${SUPABASE_URL}/functions/v1/verify-admin`;
+const MODEL_URL       = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+const MAX_SIZE        = 640;
+const JPEG_QUALITY    = 0.4;
+const MAX_UPLOADS     = 3;
+const UPLOAD_WINDOW   = 24 * 60 * 60 * 1000;
+
+let currentImage    = null;
+let currentFilter   = 'ghost';
+let photos          = [];
+let faceDetectReady = false;
+let realtimeChannel = null;
+
+function getUploadLog() {
+  try { return JSON.parse(localStorage.getItem(UPLOADED_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+function getRecentUploads() {
+  return getUploadLog().filter(t => Date.now() - t < UPLOAD_WINDOW);
+}
+const hasUploaded = () => getRecentUploads().length >= MAX_UPLOADS;
+const pad = n => String(n).padStart(2,'0');
+
+// ══════════════════════════════════════
+// 初始化
+// ══════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  updateClock();
+  setInterval(updateClock, 1000);
+  checkUploadBlock();
+  setTimeout(loadModels, 600);
+});
+
+// ══════════════════════════════════════
+// CLOCK
+// ══════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const str = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const el1 = document.getElementById('clock');
+  const el2 = document.getElementById('overlayTimestamp');
+  if (el1) el1.textContent = str;
+  if (el2) el2.textContent = str.replace(/-/g,'/');
+}
+
+// ══════════════════════════════════════
+// FACE-API
+// ══════════════════════════════════════
+async function loadModels() {
+  try {
+    if (typeof faceapi === 'undefined') return;
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    faceDetectReady = true;
+  } catch(e) { faceDetectReady = false; }
+}
+
+// ══════════════════════════════════════
+// UPLOAD BLOCK（每台裝置限一次）
+// ══════════════════════════════════════
+function checkUploadBlock() {
+  const recent = getRecentUploads();
+  const remaining = MAX_UPLOADS - recent.length;
+  const els = {
+    faceStatus:    document.getElementById('faceStatus'),
+    faceStatusText:document.getElementById('faceStatusText'),
+    faceBarFill:   document.getElementById('faceBarFill'),
+    submitBtn:     document.getElementById('submitBtn'),
+    btnRow:        document.querySelector('.btn-row'),
+    captionArea:   document.getElementById('captionArea'),
+  };
+
+  if (remaining <= 0) {
+    // 計算距離最早一張的重置時間
+    const oldest = Math.min(...recent);
+    const resetIn = oldest + UPLOAD_WINDOW - Date.now();
+    const hrs = Math.floor(resetIn / 3600000);
+    const mins = Math.floor((resetIn % 3600000) / 60000);
+    if (els.faceStatus)     els.faceStatus.className = 'face-status blocked';
+    if (els.faceStatusText) els.faceStatusText.textContent = `// 今日已達上限 · 重置於 ${hrs}h ${mins}m 後`;
+    if (els.faceBarFill)  { els.faceBarFill.style.width='100%'; els.faceBarFill.className='face-bar-fill fail'; }
+    if (els.btnRow)         els.btnRow.innerHTML = '<div class="btn full" style="border-color:var(--red);color:var(--red);text-align:center;padding:14px;letter-spacing:2px;font-size:11px">// 每24小時限上傳3張</div>';
+    if (els.submitBtn)      els.submitBtn.style.display = 'none';
+    if (els.captionArea)    els.captionArea.style.display = 'none';
+  } else if (recent.length > 0) {
+    // 還有剩餘次數，顯示提示
+    if (els.faceStatusText) {
+      // 不阻擋，只在狀態欄顯示剩餘
+    }
+  }
+}
+
+// ══════════════════════════════════════
+// NAV
+// ══════════════════════════════════════
+function switchPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'gallery') renderGallery();
+  if (name === 'stats')   renderStats();
+  if (name === 'admin') {
+    if (sessionStorage.getItem(ADMIN_SESSION_KEY) === '1') {
+      document.getElementById('adminLogin').style.display  = 'none';
+      document.getElementById('adminPanel').style.display  = 'block';
+      renderAdminGrid();
+    } else {
+      document.getElementById('adminLogin').style.display  = 'block';
+      document.getElementById('adminPanel').style.display  = 'none';
+    }
+  }
+}
+
+// ══════════════════════════════════════
+// FILTER
+// ══════════════════════════════════════
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('f-' + f);
+  if (btn) btn.classList.add('active');
+  if (currentImage) applyFilter();
+}
+
+function applyFilter() {
+  const canvas = document.getElementById('previewCanvas');
+  const ctx = canvas.getContext('2d');
+  const img = currentImage;
+  canvas.width  = img.naturalWidth  || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  ctx.drawImage(img, 0, 0);
+  const W = canvas.width, H = canvas.height;
+  const imageData = ctx.getImageData(0, 0, W, H);
+  const data = imageData.data;
+
+  // 1. 廁所幽靈 — 粉紫崩壞，暗部深紫黑，螢光霉斑
+  if (currentFilter === 'ghost') {
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const gray=r*0.299+g*0.587+b*0.114,t=gray/255;
+      data[i]  =Math.min(255,t<0.4?t*80:60+t*200);
+      data[i+1]=Math.min(255,t<0.4?t*20:t*60);
+      data[i+2]=Math.min(255,t<0.4?40+t*120:80+t*100);
+      data[i]  =Math.min(255,data[i]*0.9+r*0.1);
+      data[i+1]=Math.min(255,data[i+1]*0.9+g*0.1);
+      data[i+2]=Math.min(255,data[i+2]*0.9+b*0.1);
+      if(Math.random()<0.008){data[i]=220;data[i+1]=20;data[i+2]=180;}
+      else if(Math.random()<0.004){data[i]=40;data[i+1]=0;data[i+2]=80;}
+    }
+
+  // 2. 爆炸頭 — 橘紅焦黑，亮部燒白，輻射爆點
+  } else if (currentFilter === 'boom') {
+    for(let i=0;i<data.length;i+=4){
+      const gray=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114,t=gray/255;
+      const c=t<0.35?Math.pow(t/0.35,2)*0.35:Math.min(1,0.35+(t-0.35)*2.5);
+      data[i]=Math.min(255,c*255);data[i+1]=Math.min(255,c*90);data[i+2]=Math.min(255,c*10);
+      if(t>0.8){const w=(t-0.8)*5;data[i]=255;data[i+1]=Math.min(255,data[i+1]+w*200);data[i+2]=Math.min(255,data[i+2]+w*180);}
+      if(Math.random()<0.004){data[i]=255;data[i+1]=220;data[i+2]=80;}
+    }
+
+  // 3. 老人照 — 銀鹽底片，粗顆粒，大範圍高光暈染
+  } else if (currentFilter === 'oldman') {
+    for(let i=0;i<data.length;i+=4){
+      const gray=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114,t=gray/255;
+      data[i]=Math.min(255,gray*0.94+t*25+6);
+      data[i+1]=Math.min(255,gray*0.89+t*15+3);
+      data[i+2]=Math.min(255,gray*0.76+t*4);
+      if(t>0.72){const bl=Math.pow((t-0.72)*3.57,1.5);data[i]=Math.min(255,data[i]+bl*90);data[i+1]=Math.min(255,data[i+1]+bl*75);data[i+2]=Math.min(255,data[i+2]+bl*55);}
+      const gr=(Math.random()-0.5)*30;
+      data[i]=Math.max(0,Math.min(255,data[i]+gr));
+      data[i+1]=Math.max(0,Math.min(255,data[i+1]+gr*0.85));
+      data[i+2]=Math.max(0,Math.min(255,data[i+2]+gr*0.6));
+    }
+
+  // 4. 收據臉 — 熱感紙閾值黑白，燒焦顆粒
+  } else if (currentFilter === 'receipt') {
+    for(let i=0;i<data.length;i+=4){
+      const gray=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114,t=gray/255;
+      const c=t<0.45?Math.pow(t/0.45,3)*0.45:Math.min(1,(t-0.45)*3);
+      const v=Math.round(c*255);
+      data[i]=data[i+1]=data[i+2]=v;
+      if(t<0.3&&Math.random()<0.06){data[i]=data[i+1]=data[i+2]=0;}
+      if(t>0.7&&Math.random()<0.04){data[i]=data[i+1]=data[i+2]=255;}
+    }
+
+  // 5. 玩具相機 — 4色階+馬賽克大格
+  } else if (currentFilter === 'chunk') {
+    const step=255/3;
+    for(let i=0;i<data.length;i+=4){
+      data[i]=Math.round(data[i]/step)*step;
+      data[i+1]=Math.round(data[i+1]/step)*step;
+      data[i+2]=Math.round(data[i+2]/step)*step;
+    }
+    ctx.putImageData(imageData,0,0);
+    const bs=Math.max(8,Math.floor(W/40));
+    const mosaic=ctx.createImageData(W,H);
+    for(let y=0;y<H;y+=bs)for(let x=0;x<W;x+=bs){
+      const si=(Math.min(y+Math.floor(bs/2),H-1)*W+Math.min(x+Math.floor(bs/2),W-1))*4;
+      const pr=imageData.data[si],pg=imageData.data[si+1],pb=imageData.data[si+2];
+      for(let dy=0;dy<bs&&y+dy<H;dy++)for(let dx=0;dx<bs&&x+dx<W;dx++){
+        const oi=((y+dy)*W+(x+dx))*4;
+        mosaic.data[oi]=pr;mosaic.data[oi+1]=pg;mosaic.data[oi+2]=pb;mosaic.data[oi+3]=255;
+      }
+    }
+    ctx.putImageData(mosaic,0,0);
+    addCCTVOverlay(ctx,W,H);return;
+
+  // 6. 外星人 — 膚色→藍紫，白→螢光黃，暗→深紅
+  } else if (currentFilter === 'alien') {
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const gray=r*0.299+g*0.587+b*0.114,t=gray/255;
+      // 暖色（膚色）判定：R高且G中且B低
+      const warmth=Math.max(0,(r-b)/255);
+      const coolness=Math.max(0,(b-r)/255);
+      // 暗部→深紅紫
+      if(t<0.3){
+        data[i]=Math.min(255,r*0.8+60);
+        data[i+1]=Math.min(255,g*0.1+5);
+        data[i+2]=Math.min(255,b*0.3+20);
+      // 膚色/暖色→冷藍紫
+      } else if(warmth>0.15){
+        data[i]=Math.min(255,b*0.5+r*0.1+20);
+        data[i+1]=Math.min(255,g*0.2+b*0.3);
+        data[i+2]=Math.min(255,r*0.6+b*0.5+60);
+      // 亮部白色→螢光黃綠
+      } else if(t>0.75){
+        data[i]=Math.min(255,255-b*0.3);
+        data[i+1]=Math.min(255,220+g*0.1);
+        data[i+2]=Math.min(255,b*0.1+20);
+      // 其他→青綠
+      } else {
+        data[i]=Math.min(255,g*0.2+10);
+        data[i+1]=Math.min(255,r*0.3+b*0.4+80);
+        data[i+2]=Math.min(255,g*0.6+40);
+      }
+    }
+
+  // 7. 資料出軌 — 垂直pixel sort + 色相推洋紅/綠
+  } else if (currentFilter === 'databend') {
+    const sorted=new Uint8ClampedArray(data);
+    for(let x=0;x<W;x++){
+      const col=[];
+      for(let y=0;y<H;y++){const ii=(y*W+x)*4;col.push({r:data[ii],g:data[ii+1],b:data[ii+2],br:data[ii]*0.299+data[ii+1]*0.587+data[ii+2]*0.114});}
+      let start=-1;
+      for(let y=0;y<=H;y++){
+        const br=y<H?col[y].br:0;
+        if(br>60&&start<0)start=y;
+        else if((br<=60||y===H)&&start>=0){
+          const seg=col.slice(start,y).sort((a,b)=>a.br-b.br);
+          seg.forEach((p,k)=>{const ii=((start+k)*W+x)*4;sorted[ii]=p.r;sorted[ii+1]=p.g;sorted[ii+2]=p.b;});
+          start=-1;
+        }
+      }
+    }
+    for(let i=0;i<sorted.length;i+=4){
+      const r=sorted[i],g=sorted[i+1],b=sorted[i+2];
+      sorted[i]=Math.min(255,r*1.6+g*0.1);
+      sorted[i+1]=Math.min(255,g*0.3+b*0.2);
+      sorted[i+2]=Math.min(255,b*0.2+r*0.1);
+      const x2=(i/4)%W;
+      if(x2%3===0){sorted[i]=Math.min(255,sorted[i]+40);sorted[i+2]=Math.min(255,sorted[i+2]+20);}
+    }
+    const out=ctx.createImageData(W,H);out.data.set(sorted);
+    ctx.putImageData(out,0,0);addCCTVOverlay(ctx,W,H);return;
+
+  // 8. 訊號走光 — 色差分離 + 水平區塊撕裂 + 洋紅條
+  } else if (currentFilter === 'tear') {
+    const orig=new Uint8ClampedArray(data);
+    const out2=ctx.createImageData(W,H);
+    const cs=Math.floor(W*0.03);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const ii=(y*W+x)*4;
+      const rSrc=(y*W+Math.min(W-1,x+cs))*4;
+      const bSrc=(y*W+Math.max(0,x-cs))*4;
+      out2.data[ii]=orig[rSrc];out2.data[ii+1]=orig[ii+1];out2.data[ii+2]=orig[bSrc+2];out2.data[ii+3]=255;
+    }
+    ctx.putImageData(out2,0,0);
+    const tear2=ctx.getImageData(0,0,W,H);
+    let y2=0;
+    while(y2<H){
+      const bh=Math.floor(Math.random()*H*0.15)+2;
+      const sh=Math.floor((Math.random()-0.4)*W*0.25);
+      if(Math.random()<0.3){
+        for(let row=y2;row<Math.min(y2+bh,H);row++)
+          for(let x=0;x<W;x++){
+            const dst=(row*W+x)*4,sx=Math.max(0,Math.min(W-1,x+sh)),src=(row*W+sx)*4;
+            tear2.data[dst]=out2.data[src];tear2.data[dst+1]=out2.data[src+1];tear2.data[dst+2]=out2.data[src+2];
+          }
+      }
+      y2+=bh;
+    }
+    for(let i=0;i<tear2.data.length;i+=4){
+      const row=Math.floor(i/4/W);
+      if(row%7<2){tear2.data[i]=Math.min(255,tear2.data[i]*1.4+30);tear2.data[i+1]=Math.min(255,tear2.data[i+1]*0.6);}
+    }
+    ctx.putImageData(tear2,0,0);addCCTVOverlay(ctx,W,H);return;
+
+  // 9. 調色盤翻車 — 色相正弦扭曲 + 螢光條紋
+  } else if (currentFilter === 'corrupt') {
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const x2=(i/4)%W,y2=Math.floor(i/4/W);
+      const wave=Math.sin(x2*0.08)*Math.cos(y2*0.05);
+      const wave2=Math.sin(y2*0.12)*Math.cos(x2*0.03);
+      data[i]=Math.min(255,Math.max(0,r*1.2+g*wave*0.8+60*wave2));
+      data[i+1]=Math.min(255,Math.max(0,g*0.4+b*wave2*1.2-r*0.2));
+      data[i+2]=Math.min(255,Math.max(0,b*0.8+r*wave*0.6+g*0.3));
+    }
+    ctx.putImageData(imageData,0,0);
+    for(let y=0;y<H;y++){
+      const hue=(y*3+Math.sin(y*0.2)*40)%360;
+      ctx.fillStyle=`hsla(${hue},100%,55%,${0.12+Math.abs(Math.sin(y*0.15))*0.15})`;
+      ctx.fillRect(0,y,W,1);
+    }
+    addCCTVOverlay(ctx,W,H);return;
+
+  // 10. 電視抽風 — CRT 掃描線錯位，螢幕被踢到
+  } else if (currentFilter === 'crt') {
+    const out3=ctx.createImageData(W,H);
+    const orig2=new Uint8ClampedArray(data);
+    for(let y=0;y<H;y++){
+      // 每行隨機小偏移，亮行往右暗行往左
+      const rowBr=orig2[(y*W+Math.floor(W/2))*4]*0.299+orig2[(y*W+Math.floor(W/2))*4+1]*0.587+orig2[(y*W+Math.floor(W/2))*4+2]*0.114;
+      const baseShift=Math.floor((rowBr/255-0.5)*8);
+      // 偶爾大跳
+      const bigJump=Math.random()<0.06?Math.floor((Math.random()-0.5)*W*0.15):0;
+      const sh=baseShift+bigJump;
+      for(let x=0;x<W;x++){
+        const dst=(y*W+x)*4;
+        const sx=Math.max(0,Math.min(W-1,x-sh));
+        const src=(y*W+sx)*4;
+        out3.data[dst]=orig2[src];out3.data[dst+1]=orig2[src+1];out3.data[dst+2]=orig2[src+2];out3.data[dst+3]=255;
+      }
+      // 掃描線本身加深
+      if(y%2===0){
+        for(let x=0;x<W;x++){
+          const ii=(y*W+x)*4;
+          out3.data[ii]=Math.max(0,out3.data[ii]-20);
+          out3.data[ii+1]=Math.max(0,out3.data[ii+1]-20);
+          out3.data[ii+2]=Math.max(0,out3.data[ii+2]-20);
+        }
+      }
+    }
+    ctx.putImageData(out3,0,0);addCCTVOverlay(ctx,W,H);return;
+
+  // 11. RGB吵架 — 三通道各自往不同方向位移
+  } else if (currentFilter === 'rgb') {
+    const orig3=new Uint8ClampedArray(data);
+    const out4=ctx.createImageData(W,H);
+    const rShiftX=Math.floor(W*0.04),rShiftY=Math.floor(H*0.02);
+    const gShiftX=-Math.floor(W*0.02),gShiftY=Math.floor(H*0.03);
+    const bShiftX=Math.floor(W*0.03),bShiftY=-Math.floor(H*0.04);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const dst=(y*W+x)*4;
+      const rX=Math.max(0,Math.min(W-1,x-rShiftX)),rY=Math.max(0,Math.min(H-1,y-rShiftY));
+      const gX=Math.max(0,Math.min(W-1,x-gShiftX)),gY=Math.max(0,Math.min(H-1,y-gShiftY));
+      const bX=Math.max(0,Math.min(W-1,x-bShiftX)),bY=Math.max(0,Math.min(H-1,y-bShiftY));
+      out4.data[dst]  =orig3[(rY*W+rX)*4];
+      out4.data[dst+1]=orig3[(gY*W+gX)*4+1];
+      out4.data[dst+2]=orig3[(bY*W+bX)*4+2];
+      out4.data[dst+3]=255;
+    }
+    ctx.putImageData(out4,0,0);addCCTVOverlay(ctx,W,H);return;
+
+  // 12. 色盲測試 — 亮部→洋紅粉紅，暗部→螢光綠
+  } else if (currentFilter === 'blind') {
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const gray=r*0.299+g*0.587+b*0.114,t=gray/255;
+      if(t<0.15){
+        // 極暗→深螢光綠
+        data[i]=Math.min(255,t*100);
+        data[i+1]=Math.min(255,40+t*200);
+        data[i+2]=Math.min(255,t*60);
+      } else if(t<0.45){
+        // 暗部→螢光綠
+        const s=(t-0.15)/0.3;
+        data[i]=Math.min(255,s*80);
+        data[i+1]=Math.min(255,150+s*80);
+        data[i+2]=Math.min(255,s*40);
+      } else if(t<0.65){
+        // 中間帶→黃綠過渡到粉紅
+        const s=(t-0.45)/0.2;
+        data[i]=Math.min(255,80+s*160);
+        data[i+1]=Math.min(255,220-s*140);
+        data[i+2]=Math.min(255,s*120);
+      } else if(t<0.85){
+        // 亮部→洋紅粉紅
+        const s=(t-0.65)/0.2;
+        data[i]=Math.min(255,240+s*15);
+        data[i+1]=Math.min(255,80-s*50);
+        data[i+2]=Math.min(255,120+s*80);
+      } else {
+        // 極亮→螢光白粉
+        const s=(t-0.85)/0.15;
+        data[i]=255;
+        data[i+1]=Math.min(255,30+s*200);
+        data[i+2]=Math.min(255,200+s*55);
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  addCCTVOverlay(ctx, W, H);
+}
+
+
+function addCCTVOverlay(ctx, w, h) {
+  const now = new Date();
+  const ts = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  ctx.save();
+  const fs = Math.max(10, Math.floor(w*0.025));
+  ctx.font = `${fs}px 'Share Tech Mono', monospace`;
+  ctx.fillStyle = 'rgba(57,255,20,0.85)';
+  ctx.shadowColor = '#39ff14'; ctx.shadowBlur = 4;
+  ctx.fillText(ts, 12, h-12);
+  const ct='CAM-04 // WC', tw=ctx.measureText(ct).width;
+  ctx.fillText(ct, w-tw-12, fs+8);
+  const cs=Math.max(15,Math.floor(w*0.04));
+  ctx.strokeStyle='rgba(57,255,20,0.6)'; ctx.lineWidth=2;
+  [[8,8,'r','b'],[w-8,8,'l','b'],[8,h-8,'r','t'],[w-8,h-8,'l','t']].forEach(([x,y,hd,vd])=>{
+    ctx.beginPath();
+    ctx.moveTo(x+(hd==='r'?cs:0)-(hd==='l'?cs:0),y);
+    ctx.lineTo(x,y); ctx.lineTo(x,y+(vd==='b'?cs:0)-(vd==='t'?cs:0));
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ══════════════════════════════════════
+// IMAGE COMPRESSION
+// ══════════════════════════════════════
+function compressImage(img) {
+  const c = document.createElement('canvas');
+  let w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
+  if (w>h && w>MAX_SIZE){h=Math.round(h*MAX_SIZE/w);w=MAX_SIZE;}
+  else if (h>MAX_SIZE){w=Math.round(w*MAX_SIZE/h);h=MAX_SIZE;}
+  c.width=w; c.height=h;
+  c.getContext('2d').drawImage(img,0,0,w,h);
+  return new Promise(res=>{
+    const out=new Image();
+    out.onload=()=>res(out);
+    out.src=c.toDataURL('image/jpeg',JPEG_QUALITY);
+  });
+}
+
+// ══════════════════════════════════════
+// LOAD FILE
+// ══════════════════════════════════════
+function loadFile(event) {
+  if (hasUploaded()) return;
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => showStatus('err', '// 讀取失敗');
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onerror = () => showStatus('err', '// 圖片載入失敗');
+    img.onload = async function() {
+      try {
+        const compressed = await compressImage(img);
+        currentImage = compressed;
+        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('previewCanvas').style.display = 'block';
+        document.getElementById('cctvOverlay').classList.add('visible');
+        applyFilter();
+        runFaceDetection(compressed);
+      } catch(err) {
+        showStatus('err', '// 處理失敗，請重試');
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+function openCamera() {
+  document.getElementById('cameraInput').click();
+}
+
+// ══════════════════════════════════════
+// FACE DETECTION
+// ══════════════════════════════════════
+async function runFaceDetection(img) {
+  const statusEl   = document.getElementById('faceStatus');
+  const statusText = document.getElementById('faceStatusText');
+  const bar        = document.getElementById('faceBarFill');
+  const submitBtn  = document.getElementById('submitBtn');
+
+  function allowUpload(msg) {
+    bar.style.width='100%'; bar.className='face-bar-fill ok';
+    statusEl.className='face-status ok'; statusText.textContent=msg;
+    submitBtn.disabled=false; submitBtn.style.opacity='1';
+    document.getElementById('captionArea').style.display='block';
+  }
+
+  if (!faceDetectReady || typeof faceapi === 'undefined') {
+    allowUpload('// 偵測器離線，直接通過');
+    return;
+  }
+
+  statusEl.className='face-status scanning';
+  statusText.textContent='// 掃描人臉中 · SCANNING...';
+  bar.style.width='50%'; bar.className='face-bar-fill';
+  submitBtn.disabled=true; submitBtn.style.opacity='0.4';
+
+  try {
+    const dets = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:0.4}));
+    bar.style.width='100%';
+    if (dets.length === 0) {
+      statusEl.className='face-status fail';
+      statusText.textContent='// 未偵測到人臉 · NO FACE';
+      bar.className='face-bar-fill fail';
+      currentImage=null;
+      setTimeout(()=>{
+        document.getElementById('previewCanvas').style.display='none';
+        document.getElementById('placeholder').style.display='flex';
+        document.getElementById('cctvOverlay').classList.remove('visible');
+        statusEl.className='face-status idle';
+        statusText.textContent='// 等待載入圖像 · AWAITING IMAGE';
+        bar.style.width='0%'; bar.className='face-bar-fill';
+      }, 2500);
+    } else {
+      allowUpload(`// ${dets.length} 個目標確認 · CONFIRMED`);
+    }
+  } catch(err) {
+    allowUpload('// 偵測異常，直接通過');
+  }
+}
+
+// ══════════════════════════════════════
+// CAPTION
+// ══════════════════════════════════════
+function updateCaptionCount() {
+  const v = document.getElementById('captionInput').value;
+  document.getElementById('captionCount').textContent = `${v.length}/30`;
+}
+
+// ══════════════════════════════════════
+// SUBMIT
+// ══════════════════════════════════════
+async function submitPhoto() {
+  if (!currentImage || hasUploaded()) return;
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled=true; submitBtn.textContent='// 上傳中...';
+
+  const canvas = document.getElementById('previewCanvas');
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const filename = `photo_${Date.now()}.jpg`;
+  const caption = document.getElementById('captionInput').value.trim() || null;
+
+  try {
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY));
+    const { error: se } = await sb.storage.from('Photos').upload(filename, blob, {contentType:'image/jpeg'});
+    if (se) throw se;
+    const { data: urlData } = sb.storage.from('Photos').getPublicUrl(filename);
+    const { error: de } = await sb.from('photos').insert({image_url: urlData.publicUrl, filter: currentFilter, ts, caption});
+    if (de) throw de;
+
+    // 記錄這次上傳的時間戳
+    const log = getUploadLog();
+    log.push(Date.now());
+    localStorage.setItem(UPLOADED_KEY, JSON.stringify(log));
+
+    const remaining = MAX_UPLOADS - getRecentUploads().length;
+    showStatus('ok', remaining > 0
+      ? `// SUBJECT LOGGED · 今日還可上傳 ${remaining} 張`
+      : '// SUBJECT LOGGED · 今日上傳已達上限');
+
+    currentImage = null;
+    document.getElementById('previewCanvas').style.display = 'none';
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('cctvOverlay').classList.remove('visible');
+    document.getElementById('captionArea').style.display = 'none';
+    document.getElementById('captionInput').value = '';
+    document.getElementById('captionCount').textContent = '0/30';
+    submitBtn.textContent = '▶ 傳送至系統';
+
+    setTimeout(() => checkUploadBlock(), 800);
+
+  } catch(err) {
+    console.error(err);
+    showStatus('err', '// 上傳失敗 · FAILED — ' + (err.message||''));
+    submitBtn.disabled=false; submitBtn.textContent='▶ 傳送至系統'; submitBtn.style.opacity='1';
+  }
+}
+
+function showStatus(type, msg) {
+  const el = document.getElementById('statusMsg');
+  if (!el) return;
+  el.className='status-msg '+type; el.textContent=msg;
+  setTimeout(()=>{el.className='status-msg';}, 3500);
+}
+
+// ══════════════════════════════════════
+// REALTIME
+// ══════════════════════════════════════
+function startRealtime() {
+  if (realtimeChannel) return;
+  realtimeChannel = sb.channel('photos-rt')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'photos'}, p=>{
+      photos.unshift(p.new);
+      const cur=document.querySelector('.page.active')?.id;
+      if(cur==='page-gallery') renderGalleryFromMemory();
+      if(cur==='page-stats')   renderStats();
+      const gc=document.getElementById('galleryCount');
+      if(gc) gc.textContent=`${photos.length} SUBJECTS`;
+    })
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:'photos'}, p=>{
+      photos=photos.filter(x=>x.id!==p.old.id);
+      const cur=document.querySelector('.page.active')?.id;
+      if(cur==='page-gallery') renderGalleryFromMemory();
+      if(cur==='page-stats')   renderStats();
+      const gc=document.getElementById('galleryCount');
+      if(gc) gc.textContent=`${photos.length} SUBJECTS`;
+    })
+    .subscribe();
+}
+
+// ══════════════════════════════════════
+// GALLERY
+// ══════════════════════════════════════
+async function renderGallery() {
+  const grid=document.getElementById('galleryGrid');
+  grid.innerHTML='<div class="empty-gallery">// 載入中 · LOADING...</div>';
+  const {data,error}=await sb.from('photos').select('*').order('created_at',{ascending:false});
+  if(error||!data){grid.innerHTML='<div class="empty-gallery">// 連線失敗</div>';return;}
+  photos=data;
+  const gc=document.getElementById('galleryCount');
+  if(gc) gc.textContent=`${photos.length} SUBJECTS`;
+  renderGalleryFromMemory();
+  startRealtime();
+}
+
+function renderGalleryFromMemory() {
+  const grid=document.getElementById('galleryGrid');
+  grid.innerHTML='';
+  if(photos.length===0){grid.innerHTML='<div class="empty-gallery">NO SUBJECTS<br><br>// AWAITING INPUT</div>';return;}
+  photos.forEach((p,i)=>{
+    const item=document.createElement('div');
+    item.className='gallery-item';
+    item.style.cssText='display:flex;flex-direction:column';
+    item.onclick=()=>openLightbox(p);
+
+    const wrap=document.createElement('div');
+    wrap.style.cssText='position:relative;aspect-ratio:4/3;overflow:hidden;flex-shrink:0';
+    const img=document.createElement('img');
+    img.src=p.image_url; img.loading='lazy';
+    img.style.cssText='width:100%;height:100%;object-fit:cover;display:block';
+    const ts=document.createElement('div'); ts.className='thumb-ts'; ts.textContent=p.ts;
+    const id=document.createElement('div'); id.className='thumb-id';
+    id.textContent=`#${String(photos.length-i).padStart(3,'0')}`;
+    wrap.appendChild(img); wrap.appendChild(ts); wrap.appendChild(id);
+    item.appendChild(wrap);
+
+    if(p.caption){
+      const cap=document.createElement('div');
+      cap.style.cssText='padding:5px 6px;font-size:9px;color:var(--green);letter-spacing:1px;line-height:1.4;border-top:1px solid var(--border);background:rgba(0,0,0,0.85);word-break:break-all';
+      cap.textContent=p.caption;
+      item.appendChild(cap);
+    }
+    grid.appendChild(item);
+  });
+}
+
+function openLightbox(p) {
+  const canvas=document.getElementById('lightboxCanvas');
+  const img=new Image(); img.crossOrigin='anonymous';
+  img.onload=()=>{
+    canvas.width=img.width; canvas.height=img.height;
+    canvas.getContext('2d').drawImage(img,0,0);
+    document.getElementById('lightboxMeta').textContent=`FILTER: ${(p.filter||'').toUpperCase()} · ${p.ts} · CAM-04`;
+    const capEl=document.getElementById('lightboxCaption');
+    if(p.caption){capEl.textContent=`" ${p.caption} "`;capEl.style.display='block';}
+    else capEl.style.display='none';
+    document.getElementById('lightbox').classList.add('visible');
+  };
+  img.src=p.image_url;
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('visible');
+}
+
+// ══════════════════════════════════════
+// STATS
+// ══════════════════════════════════════
+async function renderStats() {
+  if(photos.length===0){const{data}=await sb.from('photos').select('*').order('created_at',{ascending:false});if(data)photos=data;}
+  const total=photos.length;
+  document.getElementById('statTotal').textContent=total;
+  const now=new Date(),todayStr=now.toISOString().slice(0,10),weekAgo=new Date(now-7*24*60*60*1000);
+  document.getElementById('statToday').textContent=photos.filter(p=>p.created_at?.slice(0,10)===todayStr).length;
+  document.getElementById('statWeek').textContent=photos.filter(p=>new Date(p.created_at)>=weekAgo).length;
+  const hb=Array(24).fill(0);
+  photos.forEach(p=>{if(p.created_at)hb[new Date(p.created_at).getHours()]++;});
+  const mh=Math.max(...hb,1);
+  document.getElementById('statHourChart').innerHTML=`
+    <div style="display:flex;align-items:flex-end;gap:2px;height:50px">
+      ${hb.map((v,h)=>`<div title="${String(h).padStart(2,'0')}:00 · ${v}人" style="flex:1;background:${v===mh&&v>0?'var(--green)':'var(--dim-green)'};height:${Math.max(2,Math.round(v/mh*46))}px;${v===mh&&v>0?'box-shadow:0 0 4px var(--green)':''}"></div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:8px;color:var(--dim-green);opacity:0.6"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+    ${mh>0?`<div style="font-size:9px;color:var(--green);margin-top:6px">尖峰：${String(hb.indexOf(mh)).padStart(2,'0')}:00（${mh} 人）</div>`:''}`;
+  const fc={};
+  photos.forEach(p=>{const f=p.filter||'raw';fc[f]=(fc[f]||0)+1;});
+  const sorted=Object.entries(fc).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('statFilters').innerHTML=sorted.length===0
+    ?'<div style="opacity:0.4;font-size:10px;text-align:center">無資料</div>'
+    :sorted.map(([f,c])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-size:10px;letter-spacing:1px;color:var(--green);width:80px">${f.toUpperCase()}</div><div style="flex:1;background:var(--border);height:5px;position:relative"><div style="position:absolute;inset:0;width:${Math.round(c/(total||1)*100)}%;background:var(--green)"></div></div><div style="font-size:10px;color:var(--dim-green);width:24px;text-align:right">${c}</div></div>`).join('');
+  startRealtime();
+}
+
+// ══════════════════════════════════════
+// ADMIN
+// ══════════════════════════════════════
+async function checkAdminPw() {
+  const input=document.getElementById('adminPwInput').value;
+  const msg=document.getElementById('adminLoginMsg');
+  const btn=document.querySelector('#adminLogin .btn');
+  btn.textContent='// 驗證中...'; btn.disabled=true;
+  try {
+    const res=await fetch(EDGE_FN_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:input})});
+    const {ok}=await res.json();
+    if(ok){
+      sessionStorage.setItem(ADMIN_SESSION_KEY,'1');
+      document.getElementById('adminLogin').style.display='none';
+      document.getElementById('adminPanel').style.display='block';
+      renderAdminGrid();
+    } else {
+      msg.className='status-msg err'; msg.textContent='// 密碼錯誤 · ACCESS DENIED';
+      document.getElementById('adminPwInput').value='';
+      setTimeout(()=>{msg.className='status-msg';},2500);
+    }
+  } catch(e) {
+    msg.className='status-msg err'; msg.textContent='// 連線失敗 · CONNECTION ERROR';
+    setTimeout(()=>{msg.className='status-msg';},2500);
+  }
+  btn.textContent='▶ 驗證'; btn.disabled=false;
+}
+
+function adminLockout() {
+  sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  document.getElementById('adminPanel').style.display='none';
+  document.getElementById('adminLogin').style.display='block';
+  document.getElementById('adminPwInput').value='';
+}
+
+async function renderAdminGrid() {
+  const grid=document.getElementById('adminGrid');
+  grid.innerHTML='<div class="empty-gallery">// 載入中...</div>';
+  const{data,error}=await sb.from('photos').select('*').order('created_at',{ascending:false});
+  if(error||!data){grid.innerHTML='<div class="empty-gallery">// 連線失敗</div>';return;}
+  photos=data;
+  document.getElementById('adminCount').textContent=`${photos.length} SUBJECTS`;
+  grid.innerHTML='';
+  if(photos.length===0){grid.innerHTML='<div class="empty-gallery">NO SUBJECTS</div>';return;}
+  photos.forEach((p,i)=>{
+    const item=document.createElement('div');
+    item.className='gallery-item'; item.style.position='relative';
+    const img=document.createElement('img'); img.src=p.image_url; img.loading='lazy';
+    const ts=document.createElement('div'); ts.className='thumb-ts'; ts.textContent=p.ts;
+    const id=document.createElement('div'); id.className='thumb-id'; id.textContent=`#${String(photos.length-i).padStart(3,'0')}`;
+    const del=document.createElement('button'); del.textContent='✕';
+    del.style.cssText='position:absolute;top:4px;left:4px;background:rgba(255,34,0,0.85);border:none;color:#fff;font-size:11px;width:22px;height:22px;cursor:pointer;z-index:10;';
+    del.onclick=e=>{e.stopPropagation();deletePhoto(p.id,p.image_url);};
+    item.appendChild(img); item.appendChild(ts); item.appendChild(id); item.appendChild(del);
+    grid.appendChild(item);
+  });
+}
+
+async function deletePhoto(id, imageUrl) {
+  const filename=imageUrl.split('/').pop();
+  await sb.storage.from('Photos').remove([filename]);
+  const{error}=await sb.from('photos').delete().eq('id',id);
+  if(error){showAdminMsg('err','// 刪除失敗');return;}
+  showAdminMsg('ok','// 已刪除 · REMOVED');
+  renderAdminGrid();
+}
+
+async function clearAllPhotos() {
+  if(!confirm(`確定要刪除全部 ${photos.length} 張照片？`)) return;
+  const fns=photos.map(p=>p.image_url.split('/').pop());
+  if(fns.length>0) await sb.storage.from('Photos').remove(fns);
+  await sb.from('photos').delete().neq('id','00000000-0000-0000-0000-000000000000');
+  showAdminMsg('ok','// 已清空全部');
+  renderAdminGrid();
+}
+
+function resetDeviceLock() {
+  localStorage.removeItem(UPLOADED_KEY);
+  showAdminMsg('ok','// 裝置上傳紀錄已重置');
+}
+
+function showAdminMsg(type, msg) {
+  const el=document.getElementById('adminMsg');
+  if(!el) return;
+  el.className='status-msg '+type; el.textContent=msg;
+  setTimeout(()=>{el.className='status-msg';},2500);
+}
+</script>
+</body>
+</html>
