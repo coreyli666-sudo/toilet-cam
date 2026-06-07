@@ -1303,9 +1303,9 @@ async function submitPhoto() {
 
   try {
     const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY));
-    const { error: se } = await sb.storage.from('photos').upload(filename, blob, {contentType:'image/jpeg'});
+    const { error: se } = await sb.storage.from('Photos').upload(filename, blob, {contentType:'image/jpeg'});
     if (se) throw se;
-    const { data: urlData } = sb.storage.from('photos').getPublicUrl(filename);
+    const { data: urlData } = sb.storage.from('Photos').getPublicUrl(filename);
     const { error: de } = await sb.from('photos').insert({image_url: urlData.publicUrl, filter: currentFilter, ts, caption});
     if (de) throw de;
 
@@ -1515,7 +1515,7 @@ async function renderAdminGrid() {
 
 async function deletePhoto(id, imageUrl) {
   const filename=imageUrl.split('/').pop();
-  await sb.storage.from('photos').remove([filename]);
+  await sb.storage.from('Photos').remove([filename]);
   const{error}=await sb.from('photos').delete().eq('id',id);
   if(error){showAdminMsg('err','// 刪除失敗');return;}
   showAdminMsg('ok','// 已刪除 · REMOVED');
@@ -1525,7 +1525,7 @@ async function deletePhoto(id, imageUrl) {
 async function clearAllPhotos() {
   if(!confirm(`確定要刪除全部 ${photos.length} 張照片？`)) return;
   const fns=photos.map(p=>p.image_url.split('/').pop());
-  if(fns.length>0) await sb.storage.from('photos').remove(fns);
+  if(fns.length>0) await sb.storage.from('Photos').remove(fns);
   await sb.from('photos').delete().neq('id','00000000-0000-0000-0000-000000000000');
   showAdminMsg('ok','// 已清空全部');
   renderAdminGrid();
